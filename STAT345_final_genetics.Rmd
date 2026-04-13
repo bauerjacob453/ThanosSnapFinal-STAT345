@@ -1,0 +1,113 @@
+---
+title: "STAT 345 Final Project - Thanos Snap"
+author: "STAT 345"
+output: html_document
+---
+
+Expected Submission: You will generate a well-written R Markdown report that addresses the following prompts. This R Markdown report should source your analysis code and only display top-level, abstracted code _if/when appropriate_. Choices made during the analysis project should be described and justified in the report. 
+
+
+Advice for getting started:
+
+- Start a conversation chain with your group members. Email is a great place to start, but other options exist (texting, social media platforms, etc.). Set some reasonable expectations for how and when you plan to respond to conversations. It is likely going to be unacceptable to only respond once per week, for example, but also likely unacceptable to expect a response within the hour. Have an honest conversation with your group members about this issue.
+- Start the project from a "top-down design" perspective. So, determine what the major steps of the process are, and determine what the inputs and outputs are for each of those steps (the output of step 1 will likely be the input for step 2, for example). This step is much like writing an outline for a paper before you start to write the paper itself, only much more valuable in a group setting. 
+- Once you have a sense of the big picture (the outline), determine some "due dates" for each step of the process. Work backwards from the final submission date, giving yourselves time to work on each of the parts as needed. Given the top-down design, you should be able to "divide and conquer" -- working on parts of the project that depend on earlier steps.
+- Decide how you plan to share code with each other. Using Git and GitHub is a really good choice here. If not, perhaps some form of shared directory online. In a worst-case scenario, email could also work. 
+- Be prepared to give Dr. Baumann (at least) weekly updates on your progress. Some of this can be done via email, but discuss with your group about times you are each available to meet online as well (in an office-hour-like setting). Feel free to request meetings with Dr. Baumann to get help.
+
+**General advice:** Get started early. If you wait to the last minute, it will not go well. For this project, you may find yourself spending a reasonable amount of time _searching_ for help.
+
+1. _Genetic Diversity_ Familiarize yourself with some concepts regarding genetic diversity. There are many resources online for this, such as [https://www.ck12.org/c/biology/genetic-drift/lesson/Population-Size-and-Genetic-Drift-Advanced-BIO-ADV/#:~:text=Genetic%20drift%20can%20result%20in,effect%20and%20the%20founder%20effect.](https://www.ck12.org/c/biology/genetic-drift/lesson/Population-Size-and-Genetic-Drift-Advanced-BIO-ADV/#:~:text=Genetic%20drift%20can%20result%20in,effect%20and%20the%20founder%20effect.). For simplicity, you only need to consider one allele for this project. Common concepts include alleles, allele frequency, genetic drift, generations, population size, and bottleneck events.
+
+2. _Genetic Drift_ Simulate random genetic drift. Your simulation should be able to accommodate population size, starting allele frequencies, and other relevant factors found in part 1. You should also consider running these simulations many times and summarizing the results. Create a complete, polished visualization for your simulation results. Summary statistics describing the simulation should also be developed.
+
+3. _User Friendly_ Create an interactive document using Shiny that allows for a user to specify variable values and display the visualization based on part 2. Your document should also display other relevant summary statistics either in graphic form or tabular form. Additional user-friendly features should be considered. The websites below include basic simulations for genetic drift and bottleneck events. Feel free to use these as inspiration. 
+
+https://www.biologysimulations.com/genetic-drift-bottleneck-event
+http://www.biology.arizona.edu/evolution/act/drift/about.html
+https://virtualbiologylab.org/population-genetics/
+
+
+##Installed Packages
+```{r}
+library(tidyverse)
+```
+
+
+
+## Genetic Basics
+```{r}
+##Eventually the user will get to select all of the basic numbers
+population_size <- 1000 
+generations <- 50
+brown_frequency <- .5
+blue_frequency <- .3
+##Green frequency is just the leftover population that brown and blue does not cover.
+green_frequency <- 1-brown_frequency-blue_frequency
+##Created a vector for frequencies to use in functions later on.
+start_frequencies <- c(brown = brown_frequency, blue = blue_frequency, green = green_frequency)
+
+##This function simulates genetic drift over multiple generations, which will show how allele frequencies change over time.
+##The inputs are an integer for population size, a vector of frequencies, and an integer for the number of generations.
+##The output is a dataframe with generations, alleles, and the frequencies of the alleles.
+drift_simulation <- function(population_size=population_size, frequencies = start_frequencies,generations=generations){
+  ##Naming alleles for use in function (these will also be displayed in the results).
+  alleles <- names(frequencies)
+  ##Initialize storage for simulation data
+  frequency_history <- matrix(NA, nrow=generations, ncol =length(frequencies)) 
+  colnames(frequency_history) <- alleles
+  
+  current_frequencies <- frequencies
+  for (gen in 1:generations){
+    ##Multinomial "random" sampling (genetic drift)
+    ##One simulation per generation
+    counts <- rmultinom(1, size =population_size, prob = current_frequencies)
+    ##Convert frequencies into proportions
+    current_frequencies <- counts/population_size
+    
+    ##Store the results in the matrix created earlier
+    frequency_history[gen, ] <- current_frequencies
+  }
+  
+  ##Cleaning the data. Put into data frame to make it easier to clean and use data.
+  as.data.frame(frequency_history) %>%
+    ##Create generation column.
+    mutate(generation = 1:generations) %>%
+    ##I decided to pivot longer to make it easier to understand and look at. This should also help later when we do summary statistics.
+    ##The generation column stays and the alleles and frequencies are shown.
+    pivot_longer(-generation, names_to = "allele", values_to = "frequency")
+}
+
+```
+
+##Function that will make it possible to do simulations
+```{r}
+##Number of simulations can be changed, but these will be used to create the summary statistics.
+num_simulations <- 50 
+
+##The run_simulations function runs the genetic drift simulations multiple times and combines the data into one data set, which will help with the summary statistics.
+##The inputs are an integer for the number of times the scenario will be simulated, an integer for population size, a vector for the starting allele frequencies, and an integer for the number of generations.
+##The output for this function is the dataframe from the drift_simulations function from earlier and an additional column in that dataframe for the number of simulations.
+run_simulations <- function(num_simulations =num_simulations, population_size= population_size, frequencies=start_frequencies, generations = generations){
+  ##map_dfr runs the simulation repeatedly and combines results into one dataframe.
+  ##Function(sim) is not really a function. I searched up what the best way to run 50 simulations is, and this is the best way. It is an anonymous function and it acts as a place holder. The way it works is on the first run function(sim) is given the value one. This value ends up getting added to a column in the dataframe to show what simulation the data was from. The second simulation gets the value two and so on.
+  ##The input of function(sim) is an integer that represents which simulation the data is from.
+  ##The output of function(sim) is the same integer that was inputted for each simulation, and that number is placed with the data from the simulation into the dataframe. After every simulation is done, results is returned and there is a simulation number next to every row of data.
+  results <- map_dfr(1:num_simulations, function(sim){
+    drift_simulation(population_size, frequencies, generations) %>%
+      ##Add a column to show which simulation the data is from.
+      mutate(simulation = sim)
+  })
+  
+  return(results)
+}
+
+##Runs the simulations and stores the results in a dataframe.
+results <- run_simulations(num_simulations, population_size, start_frequencies, generations)
+```
+
+
+
+
+
+
