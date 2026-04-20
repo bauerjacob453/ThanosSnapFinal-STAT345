@@ -1,0 +1,44 @@
+---
+title: "Bottleneck 1"
+author: "Jacob Bauer"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+# This function takes a population and randomly removes a number of observations from it. The number of observations removed will be no less than 10% and no more than 90%. 
+# Inputs: population size
+# Outputs: decreased population size in a data frame
+remove_random_pct <- function(population) {
+  n <- length(population) # Gets the size of the population
+  
+  pct <- runif(1, min = 0.1, max = 0.9) # Randomly generates a number between 0.1 and 0.9
+  
+  num_remove <- floor(n * pct) # Calculates the number of observations to remove from the population size
+  remove_indices <- sample(seq_len(n), size = num_remove) # Creates the random "alive" or "death" in the population
+  
+  result <- population[-remove_indices] # Removes the observations considered "dead"
+  
+  final_result <- data.frame(result = result, pct_removed = pct) # Creates a data frame of the new population and percent that was removed from the population
+  
+  return(final_result)
+}
+```
+
+
+```{r}
+pop <- 1:1000
+
+bottle_neck <- remove_random_pct(pop)
+```
+
