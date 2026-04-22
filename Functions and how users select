@@ -1,0 +1,78 @@
+library(shiny)
+
+# FUNCTIONS
+
+remove_population <- function(pop, percent_remove) {
+  # 1. What does it do: randomly removes a percentage of individuals from a population (bottleneck event)
+  # 2. Inputs: pop = vector of individuals, percent_remove = proportion to remove
+  # 3. Outputs: a new population vector with some individuals removed
+  
+  num_remove <- floor(length(pop) * percent_remove)
+  remove_idx <- sample(1:length(pop), num_remove)
+  pop[-remove_idx]
+}
+
+allele_freq <- function(pop) {
+  # 1. What does it do: calculates frequency of allele "A"
+  # 2. Inputs: pop = vector of individuals
+  # 3. Outputs: proportion of "A"
+  
+  sum(pop == "A") / length(pop)
+}
+
+run_simulation <- function(size, percent_remove) {
+  # 1. What does it do: simulates one bottleneck event and tracks allele change
+  # 2. Inputs: size, percent_remove
+  # 3. Outputs: before and after frequencies
+  
+  pop <- sample(c("A","a"), size = size, replace = TRUE)
+  
+  before <- allele_freq(pop)
+  after_pop <- remove_population(pop, percent_remove)
+  after <- allele_freq(after_pop)
+  
+  c(before = before, after = after)
+}
+
+multi_simulation <- function(n_sim, size, percent_remove) {
+  # 1. What does it do: repeats simulation many times
+  # 2. Inputs: n_sim, size, percent_remove
+  # 3. Outputs: data frame of results
+  
+  results <- replicate(n_sim, run_simulation(size, percent_remove))
+  as.data.frame(t(results))
+}
+
+# UI 
+
+ui <- fluidPage(
+  sliderInput("percent", "Percent Removed:",
+              min = 0, max = 1, value = 0.3, step = 0.05),
+  
+  sliderInput("nsim", "Number of Simulations:",
+              min = 1, max = 100, value = 20),
+  
+  plotOutput("plot")
+)
+
+# SERVER 
+
+server <- function(input, output) {
+  # 1. What does it do: runs simulations and updates plot
+  # 2. Inputs: input$percent, input$nsim
+  # 3. Outputs: scatterplot of allele frequency change
+  
+  output$plot <- renderPlot({
+    
+    results <- multi_simulation(input$nsim, 100, input$percent)
+    
+    plot(results$before, results$after,
+         xlab = "Before", ylab = "After",
+         main = "Allele Frequency Change",
+         pch = 19)
+    
+    abline(0, 1, col = "red")
+  })
+}
+
+shinyApp(ui = ui, server = server)
