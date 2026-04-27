@@ -1,0 +1,28 @@
+---
+title: "Summary Statistics"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+```
+
+
+```{r}
+#1. Summary statistics fxn.
+#2. Input: results: data frame output from run_simulations(), new_population_size: an integer for the post-bottleneck population size (NOTE->keep only if need, not currently used in fxn.)
+#3. Ouput: summary_statistic_table: a data frame with one row per allele and four columns: 'Mean_Final_Frequency', 'SD_Final_Frequency', 'Min_Frequency', and 'Max_Frequency'
+summary_stats = function(results, new_population_size) {
+  summary_statistic_table = results %>% 
+    filter(generation == max(generation)) %>% 
+    group_by(allele) %>% 
+    summarise(
+      mean_final_Freq = round(mean(frequency), 3),
+      SD_Final_Freq = round(sd(frequency), 3),
+      min_freq = round(min(frequency), 3),
+      max_freq = round(max(frequency), 3)
+    )
+  return(summary_statistic_table)
+}
+```
+
