@@ -1,0 +1,268 @@
+---
+title: "TEST_genetic_drift_sim"
+author: "STAT 345"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Installed Packages
+```{r}
+library(tidyverse)
+library(shiny)
+```
+
+## Bottleneck Function
+```{r}
+# This function takes a population and randomly removes a number of observations from it.
+# The number of observations removed will be no less than 10% and no more than 90%.
+# Inputs: population = a vector representing individuals in the population
+# Outputs: a data frame with the surviving population and the percent that was removed
+remove_random_pct <- function(population) {
+  n <- length(population) # Gets the size of the population
+
+  pct <- runif(1, min = 0.1, max = 0.9) # Randomly generates a number between 0.1 and 0.9
+
+  num_remove <- floor(n * pct) # Calculates the number of observations to remove
+  remove_indices <- sample(seq_len(n), size = num_remove) # Selects random indices to remove
+
+  result <- population[-remove_indices] # Removes the observations considered "dead"
+
+  final_result <- data.frame(result = result, pct_removed = pct) # Creates a data frame of survivors and percent removed
+
+  return(final_result)
+}
+```
+
+## Genetic Drift Simulation Function
+```{r}
+# This function simulates genetic drift over multiple generations, showing how allele
+# frequencies change over time due to random sampling.
+# Inputs: new_population_size = integer for post-bottleneck population size,
+#         frequencies = named vector of starting allele frequencies,
+#         generations = integer for number of generations to simulate
+# Outputs: a data frame with columns for generation, allele, and frequency
+drift_simulation <- function(new_population_size, frequencies, generations) {
+  alleles <- names(frequencies)
+
+  # Initialize storage matrix for frequency history
+  frequency_history <- matrix(NA, nrow = generations, ncol = length(frequencies))
+  colnames(frequency_history) <- alleles
+
+  current_frequencies <- frequencies
+
+  for (gen in 1:generations) {
+    # Multinomial random sampling to simulate genetic drift
+    counts <- rmultinom(1, size = new_population_size, prob = current_frequencies)
+    # Convert counts to proportions
+    current_frequencies <- counts / new_population_size
+    # Store results
+    frequency_history[gen, ] <- current_frequencies
+  }
+
+  # Clean and reshape into a long data frame
+  as.data.frame(frequency_history) %>%
+    mutate(generation = 1:generations) %>%
+    pivot_longer(-generation, names_to = "allele", values_to = "frequency")
+}
+```
+
+## Run Multiple Simulations Function
+```{r}
+# This function runs the genetic drift simulation multiple times and combines results.
+# Inputs: num_simulations = integer for how many times to run the simulation,
+#         population_size = integer for post-bottleneck population size,
+#         frequencies = named vector of starting allele frequencies,
+#         generations = integer for number of generations to simulate
+# Outputs: a combined data frame from all simulations with an added simulation column
+run_simulations <- function(num_simulations, population_size, frequencies, generations) {
+  # map_dfr runs the simulation repeatedly and combines results into one data frame
+  # The anonymous function(sim) tracks which simulation number each row came from
+  results <- map_dfr(1:num_simulations, function(sim) {
+    drift_simulation(population_size, frequencies, generations) %>%
+      mutate(simulation = sim)
+  })
+
+  return(results)
+}
+```
+
+## Summary Statistics Function
+```{r}
+# This function calculates summary statistics for allele frequencies at the
+# final generation across all simulations.
+# Inputs: results = data frame from run_simulations() containing generation,
+#         allele, frequency, and simulation columns
+# Outputs: a summarized data frame with one row per allele showing
+#          mean, standard deviation, min, and max of final frequencies
+summary_stats <- function(results) {
+  results %>%
+    filter(generation == max(generation)) %>%
+    group_by(allele) %>%
+    summarise(
+      Mean_Final_Frequency = round(mean(frequency), 4),
+      SD_Final_Frequency = round(sd(frequency), 4),
+      Min_Frequency = round(min(frequency), 4),
+      Max_Frequency = round(max(frequency), 4)
+    )
+}
+```
+
+## Shiny App
+```{r}
+# UI
+ui <- fluidPage(
+  titlePanel("Genetic Drift Simulation"),
+
+  sidebarLayout(
+    sidebarPanel(
+      numericInput("pop_size", "Population Size:", value = 1000, min = 10),
+      sliderInput("brown", "Brown Frequency:", min = 0, max = 1, value = 0.5, step = 0.01),
+      sliderInput("blue", "Blue Frequency:", min = 0, max = 1, value = 0.3, step = 0.01),
+      helpText("Green frequency = 1 - Brown - Blue. Must sum to 1 or less."),
+      numericInput("gens", "Generations:", value = 50, min = 1),
+      numericInput("sims", "Simulations:", value = 50, min = 1),
+      actionButton("run", "Run Simulation", class = "btn-primary")
+    ),
+
+    mainPanel(
+      h4("Population Counts: Generation 0, Post-Bottleneck, and Final Generation"),
+      tableOutput("final_table"),
+      hr(),
+      h4("Summary Statistics Across All Simulations (Final Generation)"),
+      tableOutput("summary_table"),
+      hr(),
+      h4("Average Allele Frequency Over Generations"),
+      plotOutput("drift_plot")
+    )
+  )
+)
+
+# Server
+server <- function(input, output) {
+
+  # Reactive: runs all simulations when the user clicks Run
+  # Inputs: all user-controlled inputs from the UI
+  # Outputs: a list containing results, new_population_size, generation0, and bottleneck_data
+  simulation_data <- eventReactive(input$run, {
+
+    population_size <- input$pop_size
+    generations <- input$gens
+    brown_frequency <- input$brown
+    blue_frequency <- input$blue
+    green_frequency <- 1 - brown_frequency - blue_frequency
+
+    # Validate that frequencies are valid
+    validate(need(green_frequency >= 0, "Brown + Blue frequencies must sum to 1 or less."))
+
+    start_frequencies <- c(brown = brown_frequency, blue = blue_frequency, green = green_frequency)
+
+    # Build generation 0 population
+    allele_counts <- round(start_frequencies * population_size)
+    difference <- population_size - sum(allele_counts)
+    if (difference != 0) {
+      allele_counts[which.max(allele_counts)] <- allele_counts[which.max(allele_counts)] + difference
+    }
+    alleles <- rep(names(allele_counts), times = allele_counts)
+    alleles <- sample(alleles)
+    generation0 <- data.frame(individual = 1:population_size, allele = alleles)
+
+    # Apply bottleneck
+    pop <- 1:population_size
+    bottle_neck <- remove_random_pct(pop)
+    bottleneck_data <- inner_join(generation0, bottle_neck, by = c("individual" = "result")) %>%
+      select(-pct_removed)
+
+    # Calculate post-bottleneck frequencies
+    allele_counts_new <- bottleneck_data %>% count(allele)
+    new_population_size <- nrow(bottleneck_data)
+
+    new_brown_frequency <- allele_counts_new %>% filter(allele == "brown") %>% pull(n)
+    if (length(new_brown_frequency) == 0) new_brown_frequency <- 0
+    new_brown_frequency <- new_brown_frequency / new_population_size
+
+    new_blue_frequency <- allele_counts_new %>% filter(allele == "blue") %>% pull(n)
+    if (length(new_blue_frequency) == 0) new_blue_frequency <- 0
+    new_blue_frequency <- new_blue_frequency / new_population_size
+
+    new_green_frequency <- 1 - new_brown_frequency - new_blue_frequency
+
+    new_start_frequencies <- c(brown = new_brown_frequency, blue = new_blue_frequency, green = new_green_frequency)
+
+    # Run simulations
+    num_simulations <- input$sims
+    results <- run_simulations(num_simulations, new_population_size, new_start_frequencies, generations)
+
+    list(
+      results = results,
+      new_population_size = new_population_size,
+      generation0 = generation0,
+      bottleneck_data = bottleneck_data
+    )
+  })
+
+  # Table: generation 0, post-bottleneck, and final generation counts
+  # Inputs: simulation_data() reactive list
+  # Outputs: a combined table showing allele counts at three stages
+  output$final_table <- renderTable({
+
+    generation0 <- simulation_data()$generation0
+    bottleneck_data <- simulation_data()$bottleneck_data
+    results <- simulation_data()$results
+    new_population_size <- simulation_data()$new_population_size
+
+    gen0_counts <- generation0 %>%
+      count(allele) %>%
+      mutate(Stage = "Generation 0", Count = n) %>%
+      select(Stage, allele, Count)
+
+    bottleneck_counts <- bottleneck_data %>%
+      count(allele) %>%
+      mutate(Stage = "Post-Bottleneck", Count = n) %>%
+      select(Stage, allele, Count)
+
+    final_counts <- results %>%
+      filter(simulation == max(simulation)) %>%
+      filter(generation == max(generation)) %>%
+      mutate(Count = round(frequency * new_population_size)) %>%
+      mutate(Stage = "Final Generation") %>%
+      select(Stage, allele, Count)
+
+    bind_rows(gen0_counts, bottleneck_counts, final_counts)
+  })
+
+  # Table: summary statistics across all simulations at the final generation
+  # Inputs: simulation_data() reactive list
+  # Outputs: a table with mean, SD, min, and max final frequency per allele
+  output$summary_table <- renderTable({
+    results <- simulation_data()$results
+    summary_stats(results)
+  })
+
+  # Plot: average allele frequency over generations across all simulations
+  # Inputs: simulation_data() reactive list
+  # Outputs: a line plot of mean allele frequency per generation
+  output$drift_plot <- renderPlot({
+    results <- simulation_data()$results
+
+    ggplot(results, aes(x = generation, y = frequency, color = allele)) +
+      stat_summary(fun = mean, geom = "line", linewidth = 1) +
+      scale_color_manual(values = c(
+        brown = "brown",
+        blue = "blue",
+        green = "darkgreen"
+      )) +
+      labs(
+        title = "Average Allele Frequency Over Generations",
+        x = "Generation",
+        y = "Frequency",
+        color = "Allele"
+      ) +
+      theme_minimal()
+  })
+}
+
+shinyApp(ui, server)
+```
