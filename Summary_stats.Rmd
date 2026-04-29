@@ -16,7 +16,7 @@ library(tidyverse)
 # Inputs: results = data frame from run_simulations() containing generation,
 #         allele, frequency, and simulation columns
 # Outputs: a summarized data frame with one row per allele showing
-#          mean, standard deviation, min, and max of final frequencies
+#          mean, standard deviation, fixation rate, and loss rate of final generation
 summary_stats <- function(results) {
   results %>%
     filter(generation == max(generation)) %>% #keeps only the last generation from all simulation runs
@@ -24,8 +24,8 @@ summary_stats <- function(results) {
     summarise(
       Mean_Final_Frequency = round(mean(frequency), 4), #The average ending frequency across all simulations
       SD_Final_Frequency = round(sd(frequency), 4), #how much the ending frequency varied between simulations
-      Min_Frequency = round(min(frequency), 4), #the lowest ending frequency seen in any single simulation
-      Max_Frequency = round(max(frequency), 4) #the highest ending frequency seen in any single simulation
+      Fixation_Rate = round(mean(frequency == 1.0), 4), #the proportion of simulations where an allele reached a frequency  of 1.0 (meaning it took over completely)
+      Loss_Rate = round(mean(frequency == 0.0), 4) #the proportion of simulations where an allele hit 0.0 frequency (meaning it died out/went extinct)
     )
 }
 ```
