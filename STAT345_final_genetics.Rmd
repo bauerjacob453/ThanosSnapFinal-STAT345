@@ -28,332 +28,285 @@ http://www.biology.arizona.edu/evolution/act/drift/about.html
 https://virtualbiologylab.org/population-genetics/
 
 
-##Installed Packages
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Installed Packages
 ```{r}
 library(tidyverse)
 library(shiny)
 ```
 
-##Bottleneck
+## Bottleneck Function
 ```{r}
-# This function takes a population and randomly removes a number of observations from it. The number of observations removed will be no less than 10% and no more than 90%. 
-# Inputs: population size
-# Outputs: decreased population size in a data frame
+# This function takes a population and randomly removes a number of observations from it.
+# The number of observations removed will be no less than 10% and no more than 90%.
+# Inputs: population = a vector representing individuals in the population
+# Outputs: a data frame with the surviving population and the percent that was removed
 remove_random_pct <- function(population) {
   n <- length(population) # Gets the size of the population
-  
+
   pct <- runif(1, min = 0.1, max = 0.9) # Randomly generates a number between 0.1 and 0.9
-  
-  num_remove <- floor(n * pct) # Calculates the number of observations to remove from the population size
-  remove_indices <- sample(seq_len(n), size = num_remove) # Creates the random "alive" or "death" in the population
-  
+
+  num_remove <- floor(n * pct) # Calculates the number of observations to remove
+  remove_indices <- sample(seq_len(n), size = num_remove) # Selects random indices to remove
+
   result <- population[-remove_indices] # Removes the observations considered "dead"
-  
-  final_result <- data.frame(result = result, pct_removed = pct) # Creates a data frame of the new population and percent that was removed from the population
-  
+
+  final_result <- data.frame(result = result, pct_removed = pct) # Creates a data frame of survivors and percent removed
+
   return(final_result)
 }
 ```
 
-##Run the Bottleneck
+## Genetic Drift Simulation Function
 ```{r}
-##This desides what rows will be deleted.
-population_size <- 1000
-pop <- 1:population_size
-
-bottle_neck <- remove_random_pct(pop)
-```
-
-## Genetic Basics
-```{r}
-##Eventually the user will get to select all of the basic numbers
-population_size <- 1000
-generations <- 50
-brown_frequency <- .5
-blue_frequency <- .3
-##Green frequency is just the leftover population that brown and blue does not cover.
-green_frequency <- 1-green_frequency-blue_frequency
-##Created a vector for frequencies to use in functions later on.
-start_frequencies <- c(brown = brown_frequency, blue = blue_frequency, green = green_frequency)
-
-##Create generation 0 with start allele frequencies
-allele_counts <- round(start_frequencies * population_size)
-##total = population_size
-difference <- population_size-sum(allele_counts)
-if (difference != 0) {
-  allele_counts[which.max(allele_counts)] <- allele_counts[which.max(allele_counts)] + difference}
-##Create the allele vector
-alleles <- rep(names(allele_counts), times = allele_counts)
-##Shuffle so they’re randomly distributed
-alleles <- sample(alleles)
-##Create dataframe
-generation0 <- data.frame(individual = 1:population_size, allele = alleles)
-```
-
-##Bottleneck on Generation0
-```{r}
-##By joining generation0 and bottle_neck the randomly selected rows are removed from the original generation.
-bottleneck_data <- inner_join(generation0, bottle_neck, by=c("individual" = "result"))%>%
-  select(-pct_removed)
-##Count each allele to later determine the new frequencies.
-allele_counts_new <- bottleneck_data%>%
-  count(allele)
-
-##The new variables after the bottleneck is finished.
-new_population_size <- nrow(bottleneck_data)
-new_brown_frequency <- allele_counts_new%>%
-  filter(allele== "brown")%>%
-  ##Find the frequency as a % by dividing the number of times the allele was observed by the population.
-  pull(n) / new_population_size
-##Calculated the same way as brown frequencies.
-new_blue_frequency <- allele_counts_new%>%
-  filter(allele== "blue")%>%
-  pull(n) / new_population_size
-##The remaining alleles must be green.
-new_green_frequency <- 1-new_brown_frequency-new_blue_frequency
-##Put the new frequencies into a vector to be used in the functions.
-new_start_frequencies <- c(brown = new_brown_frequency, blue = new_blue_frequency, green = new_green_frequency)
-```
-
-
-##Genetic Drift
-```{r}
-##This function simulates genetic drift over multiple generations, which will show how allele frequencies change over time.
-##The inputs are an integer for population size, a vector of frequencies, and an integer for the number of generations.
-##The output is a data frame with generations, alleles, and the frequencies of the alleles.
-drift_simulation <- function(new_population_size=population_size, frequencies = new_start_frequencies,generations=generations){
-  ##Naming alleles for use in function (these will also be displayed in the results).
-  alleles <- names(frequencies)
-  ##Initialize storage for simulation data
-  frequency_history <- matrix(NA, nrow=generations, ncol =length(frequencies)) 
-  colnames(frequency_history) <- alleles
+# This function simulates genetic drift over multiple generations, which will show how allele frequencies change over time.
+# The inputs are an integer for population size, a vector of frequencies, and an integer for the number of generations.
+# The output is a data frame with generations, alleles, and the frequencies of the alleles.
+drift_simulation <- function(new_population_size, frequencies, generations) {
   
-  current_frequencies <- frequencies
-  for (gen in 1:generations){
-    ##Multinomial "random" sampling (genetic drift)
-    ##One simulation per generation
-    counts <- rmultinom(1, size =new_population_size, prob = current_frequencies)
-    ##Convert frequencies into proportions
-    current_frequencies <- counts/new_population_size
-    
-    ##Store the results in the matrix created earlier
-    frequency_history[gen, ] <- current_frequencies
+  ##Create generation 1 using the starting allele frequencies
+  alleles <- rep(names(frequencies), times = round(frequencies * new_population_size))
+  
+  ##Fix rounding issues so the population size stays consistent
+  diff <- new_population_size - length(alleles)
+  if (diff > 0) {
+    alleles <- c(alleles, sample(names(frequencies), diff, replace = TRUE, prob = frequencies))
+  } else if (diff < 0) {
+    alleles <- sample(alleles, new_population_size)
   }
-  
-  ##Cleaning the data. Put into data frame to make it easier to clean and use data.
-  as.data.frame(frequency_history) %>%
-    ##Create generation column.
-    mutate(generation = 1:generations) %>%
-    ##I decided to pivot longer to make it easier to understand and look at. This should also help later when we do summary statistics.
-    ##The generation column stays and the alleles and frequencies are shown.
-    pivot_longer(-generation, names_to = "allele", values_to = "frequency")
-}
 
-```
+  ##Shuffle so alleles are randomly distributed
+  population <- sample(alleles)
 
-##Function that will make it possible to do simulations
-```{r}
-##Number of simulations can be changed, but these will be used to create the summary statistics.
-num_simulations <- 50 
+  ##Store generation 1 results
+  results <- data.frame(generation = 1, allele =names(frequencies), frequency= as.numeric(table(factor(population, levels = names(frequencies))))/new_population_size)
 
-##The run_simulations function runs the genetic drift simulations multiple times and combines the data into one data set, which will help with the summary statistics.
-##The inputs are an integer for the number of times the scenario will be simulated, an integer for population size, a vector for the starting allele frequencies, and an integer for the number of generations.
-##The output for this function is the dataframe from the drift_simulations function from earlier and an additional column in that dataframe for the number of simulations.
-run_simulations <- function(num_simulations =num_simulations, population_size= population_size, frequencies=start_frequencies, generations = generations){
-  ##map_dfr runs the simulation repeatedly and combines results into one dataframe.
-  ##Function(sim) is not really a function. I searched up what the best way to run 50 simulations is, and this is the best way. It is an anonymous function and it acts as a place holder. The way it works is on the first run function(sim) is given the value one. This value ends up getting added to a column in the data frame to show what simulation the data was from. The second simulation gets the value two and so on.
-  ##The input of function(sim) is an integer that represents which simulation the data is from.
-  ##The output of function(sim) is the same integer that was inputted for each simulation, and that number is placed with the data from the simulation into the data frame. After every simulation is done, results is returned and there is a simulation number next to every row of data.
-  results <- map_dfr(1:num_simulations, function(sim){
-    drift_simulation(population_size, frequencies, generations) %>%
-      ##Add a column to show which simulation the data is from.
-      mutate(simulation = sim)})
-  
+  ##Run the simulation for the remaining generations
+  for (gen in 2:generations) {
+    ##Randomly sample the population to simulate genetic drift
+    population <- sample(population,size = new_population_size, replace = TRUE)
+    ##Calculate new allele frequencies
+    freq <- as.numeric(table(factor(population, levels =names(frequencies))))/new_population_size
+    ##Add results to the data frame
+    results <- rbind(results, data.frame(generation = gen, allele = names(frequencies), frequency = freq))
+  }
+
   return(results)
-  }
-
-##Runs the simulations and stores the results in a data frame.
-results <- run_simulations(num_simulations, new_population_size, new_start_frequencies, generations)
+}
 ```
 
-##Create data frame to represent the final allele counts. (This is only a data frame for the last simulation, which will get displayed in shiny as an example end scenario).
+## Run Multiple Simulations Function
 ```{r}
-final_counts <- results%>%
-  ##Get the last simulation
-  filter(simulation == max(simulation))%>%
-  ##Get the last generation
-  filter(generation == max(generation))%>%
-  ##Convert frequency to counts
-  mutate(count = round(frequency*new_population_size))%>%
-  ##Keep only the needed information
-  select(generation, allele,count)
-##Create final alleles to be displayed in shiny.
-final_alleles <- final_counts%>%
-  uncount(weights = count)%>%
-  mutate(individual = row_number())%>%
-  select(individual, allele)%>%
-  ##Shuffle them around.
-  mutate(allele=sample(allele))
+# This function runs the genetic drift simulation multiple times and combines results.
+# Inputs: num_simulations = integer for how many times to run the simulation,
+#         population_size = integer for post-bottleneck population size,
+#         frequencies = named vector of starting allele frequencies,
+#         generations = integer for number of generations to simulate
+# Outputs: a combined data frame from all simulations with an added simulation column
+run_simulations <- function(num_simulations, population_size, frequencies, generations) {
+  # map_dfr runs the simulation repeatedly and combines results into one data frame
+  # The anonymous function(sim) tracks which simulation number each row came from
+  results <- map_dfr(1:num_simulations, function(sim) {
+    drift_simulation(population_size, frequencies, generations) %>%
+      mutate(simulation = sim)
+  })
+
+  return(results)
+}
 ```
 
+## Summary Statistics Function
+```{r}
+# This function calculates summary statistics for allele frequencies at the final generation across all simulations.
+# Inputs: results data frame with generation, allele, frequency, and simulation columns
+# Outputs: a summarized data frame showing mean, standard deviation, fixation rate, and loss rate of final generation.
+summary_stats <- function(results) {
+  results %>%
+    ##Filter for the final generation
+    filter(generation == max(generation)) %>%
+    ##Group by allele
+    group_by(allele) %>%
+    ##Calculate summary statistics
+    summarise(
+      Mean_Final_Frequency = round(mean(frequency), 4), #The average ending frequency across all simulations
+      SD_Final_Frequency = round(sd(frequency), 4), #how much the ending frequency varied between simulations
+      Fixation_Rate = round(mean(frequency == 1.0), 4), #the proportion of simulations where an allele reached a frequency  of 1.0 (meaning it took over completely)
+       Loss_Rate = round(mean(frequency == 0.0), 4) #the proportion of simulations where an allele hit 0.0 frequency (meaning it died out/went extinct)
+    )
+}
+```
 
-# Shiny
+## Shiny App
+```{r}
 # UI
-```{r}
 ui <- fluidPage(
   titlePanel("Genetic Drift Simulation"),
 
+  ##Create side bar and layout for users to pick what they want.
   sidebarLayout(
     sidebarPanel(
       numericInput("pop_size", "Population Size:", value = 1000, min = 10),
-      sliderInput("brown", "Brown Frequency:", min = 0, max = 1, value = 0.5),
-      sliderInput("blue", "Blue Frequency:", min = 0, max = 1, value = 0.3),
+      ##This is haploid genetic drift.
+      sliderInput("brown", "Brown Frequency:", min = 0, max = 1, value = 0.5, step = 0.01),
+      sliderInput("blue", "Blue Frequency:", min = 0, max = 1, value = 0.3, step = 0.01),
+      helpText("Green frequency = 1 - Brown - Blue. Must sum to 1 or less."),
       numericInput("gens", "Generations:", value = 50, min = 1),
-      numericInput("sims", "Simulations:", value = 50, min = 1)
-    ),
+      numericInput("sims", "Simulations:", value = 50, min = 1),
 
+      ##Allows the user to select which simulation they want to view
+      uiOutput("sim_select"),
+      actionButton("run", "Run Simulation", class = "btn-primary")),
+
+    ##Create the main panel for what will be displayed in shiny.
     mainPanel(
+      h4("Population Counts: Generation 0, Post-Bottleneck, and Final Generation"),
       tableOutput("final_table"),
-      plotOutput("drift_plot")
+      hr(),
+      h4("Summary Statistics Across All Simulations (Final Generation)"),
+      tableOutput("summary_table"),
+      hr(),
+      h4("Average Allele Frequency Over Generations and All Simulations"),
+      plotOutput("drift_plot"),
+      hr(),
+
+      ##Displays the allele frequency for the selected simulation
+      h4("Allele Frequency for Selected Simulation"),
+      plotOutput("single_sim_plot")
     )
   )
 )
-```
 
-# Server
-```{r}
 server <- function(input, output) {
-  # 1. What does it do: runs simulations and updates plot
-  # 2. Inputs: a list of everything the user controls in the UI.
-  # 3. Outputs: scatterplot of allele frequency change
-  
-  simulation_data <- reactive({
-    ##Eventually the user will get to select all of the basic numbers
+
+  ##This runs the entire simulation when the user clicks run
+  simulation_data <- eventReactive(input$run, {
+
+    ##User inputs
     population_size <- input$pop_size
     generations <- input$gens
     brown_frequency <- input$brown
     blue_frequency <- input$blue
-    ##Green frequency is just the leftover population that brown and blue does not cover.
     green_frequency <- 1 - brown_frequency - blue_frequency
-    ##Note to the user to make sure the calculations work.
-    validate(need(green_frequency >= 0, "Brown + Blue must be ≤ 1"))
-    ##Created a vector for frequencies to use in functions later on.
+
+    ##Make sure frequencies are valid
+    validate(need(green_frequency >= 0, "Brown + Blue frequencies must sum to 1 or less."))
+
+    ##Create frequency vector
     start_frequencies <- c(brown = brown_frequency, blue = blue_frequency, green = green_frequency)
 
-    ##Create generation 0 with start allele frequencies
+    ##Create generation 0
     allele_counts <- round(start_frequencies * population_size)
-    ##total = population_size
     difference <- population_size - sum(allele_counts)
-    
     if (difference != 0) {
-      allele_counts[which.max(allele_counts)] <- 
-        allele_counts[which.max(allele_counts)] + difference
+      allele_counts[which.max(allele_counts)] <- allele_counts[which.max(allele_counts)] + difference
     }
-    
-    ##Create the allele vector
+
     alleles <- rep(names(allele_counts), times = allele_counts)
-    ##Shuffle so they’re randomly distributed
     alleles <- sample(alleles)
-    ##Create dataframe
+
     generation0 <- data.frame(individual = 1:population_size, allele = alleles)
-    
-    ##This desides what rows will be deleted.
+
+    ##Run bottleneck
     pop <- 1:population_size
     bottle_neck <- remove_random_pct(pop)
-    ##By joining generation0 and bottle_neck the randomly selected rows are removed from the original generation.
-    bottleneck_data <- inner_join(generation0,bottle_neck, by = c("individual" = "result"))%>%
+
+    bottleneck_data <- inner_join(generation0, bottle_neck, by = c("individual" = "result")) %>%
       select(-pct_removed)
-    ##Count each allele to later determine the new frequencies.
-    allele_counts_new <- bottleneck_data %>%
-      count(allele)
-    
-    ##The new variables after the bottleneck is finished.
+
+    ##Calculate new frequencies after bottleneck
+    allele_counts_new <- bottleneck_data %>% count(allele)
     new_population_size <- nrow(bottleneck_data)
-    new_brown_frequency <- allele_counts_new%>%
-      filter(allele == "brown")%>%
-      pull(n)
-    if (length(new_brown_frequency) == 0) new_brown_frequency <- 0
-    new_brown_frequency <- new_brown_frequency / new_population_size
-    ##Calculated the same way as brown frequencies.
-    new_blue_frequency <- allele_counts_new %>%
-      filter(allele == "blue")%>%
-      pull(n)
-    if (length(new_blue_frequency) == 0) new_blue_frequency <- 0
-    new_blue_frequency <- new_blue_frequency / new_population_size
-    ##The remaining alleles must be green.
-    new_green_frequency <- 1 - new_brown_frequency - new_blue_frequency
-  ##Put the new frequencies into a vector to be used in the functions.
-    new_start_frequencies <- c(brown = new_brown_frequency, blue = new_blue_frequency, green = new_green_frequency)
 
-    ##Number of simulations can be changed, but these will be used to create the summary statistics.
-    num_simulations <- input$sims 
-    ##Runs the simulations and stores the results in a data frame.
-    results <- run_simulations(num_simulations, new_population_size, new_start_frequencies,generations)
+    new_start_frequencies <- allele_counts_new %>%
+      mutate(freq = n / sum(n)) %>%
+      select(allele, freq) %>%
+      deframe()
 
-    list(results = results, new_population_size = new_population_size, generation0 = generation0, bottleneck_data = bottleneck_data)
+    ##Run simulations
+    results <- run_simulations(input$sims, new_population_size, new_start_frequencies, generations)
+
+    list(
+      results = results,
+      new_population_size = new_population_size,
+      generation0 = generation0,
+      bottleneck_data = bottleneck_data
+    )
   })
 
-  ##Create data frame to represent the generation 0, generation1, and final allele counts.
+  ##Creates the dropdown menu for selecting simulations
+  output$sim_select <- renderUI({
+    req(simulation_data())
+    sims <- unique(simulation_data()$results$simulation)
+
+    selectInput("selected_sim", "Select Simulation:",
+                choices = sims,
+                selected = sims[1])
+  })
+
+  ##Create table for generation 0, post-bottleneck, and final generation
   output$final_table <- renderTable({
 
-    ##Find the counts to display in shiny
-    gen0_counts <- generation0%>%
-      ##Count each allele
-      count(allele)%>%
-      ##Add label so we know what stage this is
-      mutate(generation = "Generation 0", count = n)%>%
-      ##Keep only needed columns
-      select(generation, allele, count)
-    
-     ##Bottleneck allele counts to display in shiny
-    bottleneck_counts <- bottleneck_data %>%
-      ##Count each allele
-      count(allele)%>%
-      mutate(generation = "Generation 1", count = n)%>%
-      select(generation, allele, count)
-    
+    generation0 <- simulation_data()$generation0
+    bottleneck_data <- simulation_data()$bottleneck_data
     results <- simulation_data()$results
     new_population_size <- simulation_data()$new_population_size
 
-    final_counts <- results %>%
-      ##Get the last simulation
-      filter(simulation == max(simulation))%>%
-      ##Get the last generation
-      filter(generation == max(generation))%>%
-      ##Convert frequency to counts
-      mutate(count = round(frequency * new_population_size))%>%
-      ##Keep only the needed information
-      select(allele, count)
-    
-    ##Combine all information into 1 table
+    gen0_counts <- generation0%>%
+      count(allele)%>%
+      mutate(Stage = "Generation 0", Count = n)%>%
+      select(Stage, allele, Count)
+
+    bottleneck_counts <- bottleneck_data%>%
+      count(allele) %>%
+      mutate(Stage = "Post-Bottleneck", Count= n)%>%
+      select(Stage, allele, Count)
+
+    ##Use selected simulation for final generation
+    final_counts <- results%>%
+      filter(simulation == input$selected_sim)%>%
+      filter(generation== max(generation)) %>%
+      mutate(Count = round(frequency * new_population_size))%>%
+      mutate(Stage = "Final Generation")%>%
+      select(Stage, allele, Count)
+
     bind_rows(gen0_counts, bottleneck_counts, final_counts)
   })
-  
-  # Plot
-  output$drift_plot <- renderPlot({
 
+  ##Create summary statistics table
+  output$summary_table <- renderTable({
+    results <- simulation_data()$results
+    summary_stats(results)
+  })
+
+  ##Plot average allele frequency across all simulations
+  output$drift_plot <- renderPlot({
     results <- simulation_data()$results
 
-    ggplot(results, aes(x = generation, y = frequency, color = allele)) +
-      stat_summary(fun = mean, geom = "line", linewidth = 1) +
-      scale_color_manual(values = c(
-        brown = "brown",
-        blue = "blue",
-        green = "green"
-      )) +
-      labs(
-        title = "Average Genetic Drift Over Simulations",
-        y = "Frequency"
-      )
+    ggplot(results, aes(x = generation, y = frequency, color = allele))+
+      stat_summary(fun = mean, geom = "line", linewidth = 1)+
+      scale_color_manual(values = c(brown = "brown", blue = "blue", green = "darkgreen"))+
+      labs(title = "Average Allele Frequency Over Generations", x = "Generation", y = "Frequency",color = "Allele")+
+      theme_minimal()
+  })
+
+  ##Plot allele frequency for the selected simulation
+  output$single_sim_plot <- renderPlot({
+    req(simulation_data(), input$selected_sim)
+
+    results <- simulation_data()$results%>%
+      filter(simulation == input$selected_sim)
+
+    ggplot(results, aes(x=generation, y=frequency, color = allele))+
+      geom_line(linewidth = 1)+
+      scale_color_manual(values=c(brown ="brown", blue = "blue", green = "darkgreen"))+
+      labs(title = paste("Simulation", input$selected_sim), x = "Generation", y ="Frequency", color = "Allele")+
+      theme_minimal()
   })
 }
-```
-
-##Put into shiny app
-```{r}
 shinyApp(ui, server)
 ```
-
-
-
 
