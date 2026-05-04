@@ -21,7 +21,7 @@ library(tidyverse)
 ```{r}
 # MASTER BOTTLENECK FUNCTION
 # target: a variable containing "all", "blue", "brown", or "green"
-apply_bottleneck <- function(population, pct_remove, target) {
+master_bottleneck <- function(population, pct_remove, target) {
   
   if (target == "all") {
     # Logic for a general population crash
