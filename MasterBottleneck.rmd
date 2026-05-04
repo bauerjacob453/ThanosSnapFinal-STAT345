@@ -1,0 +1,55 @@
+---
+title: "Master Bottleneck"
+author: "Jacob Bauer"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+```{r}
+library(tidyverse)
+```
+
+```{r}
+# MASTER BOTTLENECK FUNCTION
+# target: a variable containing "all", "blue", "brown", or "green"
+apply_bottleneck <- function(population, pct_remove, target) {
+  
+  if (target == "all") {
+    # Logic for a general population crash
+    n <- length(population)
+    num_remove <- floor(n * pct_remove)
+    remove_indices <- sample(seq_len(n), size = num_remove)
+    result <- population[-remove_indices]
+    
+  } else {
+    # Logic for a specific allele being targeted
+    # Here, 'target' will be the specific string (e.g., "blue") chosen by the user
+    target_indices <- which(population == target)
+    safe_indices <- which(population != target)
+    
+    n_target <- length(target_indices)
+    num_remove <- floor(n_target * pct_remove)
+    
+    if (num_remove > 0) {
+      remove_targets <- sample(target_indices, size = num_remove)
+      surviving_target_indices <- setdiff(target_indices, remove_targets)
+    } else {
+      surviving_target_indices <- target_indices
+    }
+    
+    result <- population[c(surviving_target_indices, safe_indices)]
+  }
+  
+  return(data.frame(result = result, pct_removed = pct_remove))
+}
+```
+
