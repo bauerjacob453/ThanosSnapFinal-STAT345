@@ -1,0 +1,395 @@
+---
+title: "STAT 345 Final Project - Thanos Snap"
+author: "STAT 345"
+output: html_document
+---
+
+Expected Submission: You will generate a well-written R Markdown report that addresses the following prompts. This R Markdown report should source your analysis code and only display top-level, abstracted code _if/when appropriate_. Choices made during the analysis project should be described and justified in the report. 
+
+
+1. _Genetic Diversity_ Familiarize yourself with some concepts regarding genetic diversity. There are many resources online for this, such as [https://www.ck12.org/c/biology/genetic-drift/lesson/Population-Size-and-Genetic-Drift-Advanced-BIO-ADV/#:~:text=Genetic%20drift%20can%20result%20in,effect%20and%20the%20founder%20effect.](https://www.ck12.org/c/biology/genetic-drift/lesson/Population-Size-and-Genetic-Drift-Advanced-BIO-ADV/#:~:text=Genetic%20drift%20can%20result%20in,effect%20and%20the%20founder%20effect.). For simplicity, you only need to consider one allele for this project. Common concepts include alleles, allele frequency, genetic drift, generations, population size, and bottleneck events.
+
+2. _Genetic Drift_ Simulate random genetic drift. Your simulation should be able to accommodate population size, starting allele frequencies, and other relevant factors found in part 1. You should also consider running these simulations many times and summarizing the results. Create a complete, polished visualization for your simulation results. Summary statistics describing the simulation should also be developed.
+
+3. _User Friendly_ Create an interactive document using Shiny that allows for a user to specify variable values and display the visualization based on part 2. Your document should also display other relevant summary statistics either in graphic form or tabular form. Additional user-friendly features should be considered. The websites below include basic simulations for genetic drift and bottleneck events. Feel free to use these as inspiration. 
+
+https://www.biologysimulations.com/genetic-drift-bottleneck-event
+http://www.biology.arizona.edu/evolution/act/drift/about.html
+https://virtualbiologylab.org/population-genetics/
+
+                                                                                                                                            
+# OVERVIEW:
+# This app simulates genetic drift across generations with an optional bottleneck event.
+# It allows users to explore how randomness and population crashes affect allele frequencies,
+# including fixation and loss of alleles over time.
+# ASSUMPTIONS:
+# - No mutation, migration, or natural selection (except targeted bottlenecks)
+# - Changes in allele frequency are driven purely by genetic drift                                                                                                                                               
+
+## Installed Packages
+```{r}
+library(tidyverse)
+library(shiny)
+```
+
+## Bottleneck Function
+```{r}
+# This function takes a population and removes an exact user-specified percentage of individuals.
+# The individuals removed are selected randomly, but the total number removed is fixed.
+# This function also allows the user to select what the bottleneck is targeting or if it is random
+# Inputs: population = a vector representing individuals in the population
+#         pct_remove = the exact proportion of the population to remove (between 0 and 1)
+# Outputs: a data frame with the surviving population and the percent that was removed
+# MASTER BOTTLENECK FUNCTION
+# target: "all", "blue", "brown", or "green"
+master_bottleneck <- function(population, pct_remove, target) {
+  # This function simulates a bottleneck event:
+  # - "all" = random environmental disaster
+  # - specific allele = selective pressure against that phenotype
+  
+  if (target == "all") {
+    # Randomly removes individuals regardless of allele type
+    # Represents non-selective population crash
+    # General population crash
+    n <- length(population)
+    num_remove <- floor(n * pct_remove)
+    # floor() ensures we remove a whole number of individuals
+    remove_indices <- sample(seq_len(n), size = num_remove)
+    result <- population[-remove_indices]
+
+  } else {
+    # Logic for a specific allele being targeted
+    # Here, 'target' will be the specific string (e.g., "blue") chosen by the user
+    target_indices <- which(population == target)
+    safe_indices <- which(population != target)
+
+    n_target <- length(target_indices)
+
+    num_remove <- floor(n_target * pct_remove)
+
+    if (num_remove > 0) {
+      remove_targets <- sample(target_indices, size = num_remove)
+      surviving_target_indices <- setdiff(target_indices, remove_targets)
+
+    } else {
+      surviving_target_indices <- target_indices
+    }
+
+    result <- population[c(surviving_target_indices, safe_indices)]
+  }
+
+  return(data.frame(result = result,
+                    pct_removed = pct_remove))
+}
+```
+
+## Genetic Drift Simulation Function
+```{r}
+# This function simulates genetic drift over multiple generations, showing how allele
+# frequencies change over time due to random sampling. A bottleneck can be applied
+# at a user-specified generation mid-simulation.
+# Inputs: population_size = integer for starting population size,
+#         frequencies = named vector of starting allele frequencies,
+#         generations = integer for number of generations to simulate,
+#         bottleneck_gen = integer for which generation the bottleneck occurs,
+#         pct_remove = exact proportion of population to remove at bottleneck
+#         target_allele = allele (phenotype) the user wants to target
+# Outputs: a data frame with columns for generation, allele, and frequency
+drift_simulation <- function(population_size, frequencies, generations, bottleneck_gen, pct_remove, target_allele) {
+
+  alleles <- names(frequencies)
+
+  # Build the starting population from frequencies
+  pop_alleles <- rep(names(frequencies), times = round(frequencies * population_size))
+
+  # Fix any rounding issues so population size stays consistent
+  diff <- population_size - length(pop_alleles)
+  if (diff > 0) {
+    pop_alleles <- c(pop_alleles, sample(names(frequencies), diff, replace = TRUE, prob = frequencies))
+  } else if (diff < 0) {
+    pop_alleles <- sample(pop_alleles, population_size)
+  }
+
+  # Shuffle so alleles are randomly distributed
+  population <- sample(pop_alleles)
+
+  # Track current population size (changes after bottleneck)
+  current_size <- population_size
+
+  # Store generation 1 results
+  results <- data.frame(
+    generation = 1,
+    allele = alleles,
+    frequency = as.numeric(table(factor(population, levels = alleles))) / current_size
+  )
+
+  # Run the simulation for remaining generations
+  for (gen in 2:generations) {
+    # Apply bottleneck at the user-chosen generation
+    if (gen == bottleneck_gen) {
+      survivors <- master_bottleneck(population, pct_remove, target_allele) #Determines which survive
+      population <- survivors$result #Stores the new population of survivors
+      current_size <- length(population) #Find the population size of the new population after bottleneck.
+}
+
+    # Randomly sample the population to simulate genetic drift
+    population <- sample(population, size = current_size, replace = TRUE)
+
+    # Calculate new allele frequencies
+    freq <- as.numeric(table(factor(population, levels = alleles))) / current_size
+
+    # Add results to the data frame
+    results <- rbind(results, data.frame(generation = gen, allele = alleles, frequency = freq))
+  }
+
+  return(results)
+}
+```
+
+## Run Multiple Simulations Function
+```{r}
+# This function runs the genetic drift simulation multiple times and combines results.
+# Inputs: num_simulations = integer for how many times to run the simulation,
+#         population_size = integer for starting population size,
+#         frequencies = named vector of starting allele frequencies,
+#         generations = integer for number of generations to simulate,
+#         bottleneck_gen = integer for which generation the bottleneck occurs,
+#         pct_remove = exact proportion of population to remove at bottleneck
+#         target_allele = the allele (phenotype) the use is looking to target. If "all" is selected the bottleneck will be random.
+# Outputs: a combined data frame from all simulations with an added simulation column
+run_simulations <- function(num_simulations, population_size, frequencies, generations, bottleneck_gen, pct_remove, target_allele) {
+  # map_dfr runs the simulation repeatedly and combines results into one data frame.
+  # The anonymous function(sim) tracks which simulation number each row came from. This helps filter through the data later.
+  results <- map_dfr(1:num_simulations, function(sim) {
+    drift_simulation(population_size, frequencies, generations, bottleneck_gen, pct_remove, target_allele) %>%
+      mutate(simulation = sim)
+  })
+
+  return(results)
+}
+```
+
+## Summary Statistics Function
+```{r}
+# This function calculates summary statistics for allele frequencies at the
+# final generation across all simulations.
+# Inputs: results = data frame from run_simulations() containing generation,
+#         allele, frequency, and simulation columns
+# Outputs: a summarized data frame with one row per allele showing
+#          mean, standard deviation, fixation rate, and loss rate of final frequencies
+summary_stats <- function(results) {
+  results %>%
+    filter(generation == max(generation)) %>% # Keep only the last generation
+    group_by(allele) %>% # Split into groups per allele
+    summarise(
+      Mean_Final_Frequency = round(mean(frequency), 4), # Average ending frequency across all simulations
+      # Average ending frequency across simulations
+      SD_Final_Frequency = round(sd(frequency), 4),     # How much frequency varied between simulations
+      Fixation_Rate = round(mean(frequency == 1.0), 4), # Proportion of simulations where allele took over completely
+      Loss_Rate = round(mean(frequency == 0.0), 4)      # Proportion of simulations where allele went extinct
+    )
+}
+```
+
+## Shiny App
+```{r}
+# UI
+ui <- fluidPage(
+  titlePanel("Genetic Drift Simulation"),
+
+  ## Create the side bar and layout for the users to pick what they want to see in the plots/ tables.
+  ## This simulation is currently showing phenotypes. This is essentially the same thing as AA, Aa, and aa in the case of alleles. Representing the data as phenotypes just helps for user understanding and makes more sense when plotted.
+  sidebarLayout(
+    sidebarPanel(
+      numericInput("pop_size", "Population Size:", value = 1000, min = 10),
+
+      # Allele frequency sliders
+      sliderInput("brown", "Brown Frequency:", min = 0, max = 1, value = 0.5, step = 0.01),
+      sliderInput("blue", "Blue Frequency:", min = 0, max = 1, value = 0.3, step = 0.01),
+      helpText("Green frequency = 1 - Brown - Blue. Must sum to 1 or less."),
+
+      numericInput("gens", "Generations:", value = 50, min = 2),
+      numericInput("sims", "Simulations:", value = 50, min = 1),
+
+      hr(),
+
+      # Bottleneck controls
+      h4("Bottleneck Settings"),
+      numericInput("bottleneck_gen", "Bottleneck Generation:", value = 25, min = 2),
+      helpText("Must be between 2 and the number of generations."),
+      sliderInput("pct_remove", "Percent of Population Removed:", min = 1, max = 99, value = 50, step = 1),
+      selectInput("target_allele", "Target Allele:", choices = c("all", "brown", "blue", "green"), selected = "all"),
+      helpText("The exact percentage removed. Individuals are still chosen randomly."),
+
+      hr(),
+
+      # Simulation selector dropdown (rendered dynamically after run)
+      uiOutput("sim_select"),
+
+      actionButton("run", "Run Simulation", class = "btn-primary")
+  # Repeats the simulation multiple times to capture randomness
+  # Allows analysis of variability, fixation, and allele loss
+    ),
+
+    mainPanel(
+      h4("Population Counts: Generation 0, Post-Bottleneck, and Final Generation"),
+      tableOutput("final_table"),
+      hr(),
+      h4("Summary Statistics Across All Simulations (Final Generation)"),
+      tableOutput("summary_table"),
+      hr(),
+      h4("Average Allele Frequency Over Generations and All Simulations"),
+      plotOutput("drift_plot"),
+      hr(),
+      h4("Allele Frequency for Selected Simulation"),
+      plotOutput("single_sim_plot")
+    )
+  )
+)
+
+# Server
+server <- function(input, output) {
+
+  # Reactive: runs all simulations when the user clicks Run
+  # Inputs: all user-controlled inputs from the UI
+  # Outputs: a list containing results, population_size, generation0, and bottleneck_gen
+  simulation_data <- eventReactive(input$run, {
+
+    # User inputed data
+    population_size <- input$pop_size
+    generations <- input$gens
+    brown_frequency <- input$brown
+    blue_frequency <- input$blue
+    green_frequency <- 1 - brown_frequency - blue_frequency
+    bottleneck_gen <- input$bottleneck_gen
+    pct_remove <- input$pct_remove / 100 # Convert slider percentage to proportion
+    target_allele <- input$target_allele
+
+    # Validate that frequencies are valid
+    validate(need(green_frequency >= 0, "Brown + Blue frequencies must sum to 1 or less."))
+
+    # Validate bottleneck generation is within range
+    validate(need(bottleneck_gen >= 2 & bottleneck_gen <= generations,
+                  "Bottleneck generation must be between 2 and the number of generations."))
+
+    # Create a frequency vector
+    start_frequencies <- c(brown = brown_frequency, blue = blue_frequency, green = green_frequency)
+
+    # Build generation 0 population. This is the population before drift or bottleneck.
+    allele_counts <- round(start_frequencies * population_size)
+    difference <- population_size - sum(allele_counts)
+    if (difference != 0) {
+      allele_counts[which.max(allele_counts)] <- allele_counts[which.max(allele_counts)] + difference
+    }
+    alleles <- rep(names(allele_counts), times = allele_counts)
+    alleles <- sample(alleles)
+    generation0 <- data.frame(individual = 1:population_size, allele = alleles)
+
+    # Run simulations — bottleneck now applied inside drift_simulation()
+    results <- run_simulations(input$sims, population_size, start_frequencies, generations, bottleneck_gen, pct_remove, target_allele)
+
+    list(
+      results = results,
+      population_size = population_size,
+      generation0 = generation0,
+      bottleneck_gen = bottleneck_gen,
+      pct_remove = pct_remove
+    )
+  })
+
+  # Dynamically render simulation selector drop down after simulations run
+  output$sim_select <- renderUI({
+    req(simulation_data())
+    sims <- unique(simulation_data()$results$simulation)
+    selectInput("selected_sim", "Select Simulation to View:",
+                choices = sims,
+                selected = sims[1])
+  })
+
+  # Table: generation 0, post-bottleneck, and final generation counts
+  # Inputs: simulation_data() reactive list
+  # Outputs: a combined table showing allele counts at three stages
+  output$final_table <- renderTable({
+
+    generation0 <- simulation_data()$generation0
+    results <- simulation_data()$results
+    population_size <- simulation_data()$population_size
+    bottleneck_gen <- simulation_data()$bottleneck_gen
+
+    gen0_counts <- generation0 %>%
+      count(allele) %>%
+      mutate(Stage = "Generation 0", Count = n) %>%
+      select(Stage, allele, Count)
+
+    # Post-bottleneck counts from the selected simulation at the bottleneck generation
+    bottleneck_counts <- results %>%
+      filter(simulation == input$selected_sim, generation == bottleneck_gen) %>%
+      mutate(Count = round(frequency * population_size * (1 - simulation_data()$pct_remove)),
+             Stage = "Post-Bottleneck") %>%
+      select(Stage, allele, Count)
+
+    # Display the final counts from the last generation in the selected simulation
+    final_counts <- results %>%
+      filter(simulation == input$selected_sim, generation == max(generation)) %>%
+      mutate(Count = round(frequency * population_size * (1 - simulation_data()$pct_remove)),
+             Stage = "Final Generation") %>%
+      select(Stage, allele, Count)
+
+    bind_rows(gen0_counts, bottleneck_counts, final_counts)
+  })
+
+  # Table: summary statistics across all simulations at the final generation
+  output$summary_table <- renderTable({
+    results <- simulation_data()$results
+    summary_stats(results)
+  })
+
+  # Plot: average allele frequency over all simulations with vertical bottleneck line
+  output$drift_plot <- renderPlot({
+    results <- simulation_data()$results
+    bottleneck_gen <- simulation_data()$bottleneck_gen
+
+    ggplot(results, aes(x = generation, y = frequency, color = allele)) +
+      stat_summary(fun = mean, geom = "line", linewidth = 1) +
+      # Vertical dashed line showing when the bottleneck occurred
+      geom_vline(xintercept = bottleneck_gen, linetype = "dashed", color = "red", linewidth = 0.8) +
+      annotate("text", x = bottleneck_gen, y = 1, label = "Bottleneck", color = "red",
+               hjust = -0.1, vjust = 1, size = 3.5) +
+      scale_color_manual(values = c(brown = "brown", blue = "blue", green = "darkgreen")) +
+      labs(
+        title = "Average Allele Frequency Over Generations",
+        x = "Generation",
+        y = "Frequency",
+        color = "Allele"
+      ) +
+      theme_minimal()
+  })
+
+  # Plot: allele frequency for the selected simulation with vertical bottleneck line
+  output$single_sim_plot <- renderPlot({
+    req(simulation_data(), input$selected_sim)
+
+    results <- simulation_data()$results %>%
+      filter(simulation == input$selected_sim)
+
+    bottleneck_gen <- simulation_data()$bottleneck_gen
+
+    ggplot(results, aes(x = generation, y = frequency, color = allele)) +
+      geom_line(linewidth = 1) +
+      # Vertical dashed line showing when the bottleneck occurred
+      geom_vline(xintercept = bottleneck_gen, linetype = "dashed", color = "red", linewidth = 0.8) +
+      annotate("text", x = bottleneck_gen, y = 1, label = "Bottleneck", color = "red",
+               hjust = -0.1, vjust = 1, size = 3.5) +
+      scale_color_manual(values = c(brown = "brown", blue = "blue", green = "darkgreen")) +
+      labs(
+        title = paste("Simulation", input$selected_sim),
+        x = "Generation",
+        y = "Frequency",
+        color = "Allele"
+      ) +
+      theme_minimal()
+  })
+}
+
+shinyApp(ui, server)
+```
