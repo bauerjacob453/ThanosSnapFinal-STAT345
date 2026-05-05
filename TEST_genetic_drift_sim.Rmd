@@ -15,23 +15,37 @@ library(shiny)
 
 ## Bottleneck Function
 ```{r}
-# This function takes a population and removes an exact user-specified percentage of individuals.
-# The individuals removed are selected randomly, but the total number removed is fixed.
-# Inputs: population = a vector representing individuals in the population
-#         pct_remove = the exact proportion of the population to remove (between 0 and 1)
-# Outputs: a data frame with the surviving population and the percent that was removed
-remove_random_pct <- function(population, pct_remove) {
-  n <- length(population) # Gets the size of the population
-
-  num_remove <- floor(n * pct_remove) # Calculates the exact number of individuals to remove
-
-  remove_indices <- sample(seq_len(n), size = num_remove) # Randomly selects which individuals die
-
-  result <- population[-remove_indices] # Removes the randomly selected individuals
-
-  final_result <- data.frame(result = result, pct_removed = pct_remove) # Creates a data frame of survivors and percent removed
-
-  return(final_result)
+# MASTER BOTTLENECK FUNCTION
+# target: a variable containing "all", "blue", "brown", or "green"
+master_bottleneck <- function(population, pct_remove, target) {
+  
+  if (target == "all") {
+    # Logic for a general population crash
+    n <- length(population)
+    num_remove <- floor(n * pct_remove)
+    remove_indices <- sample(seq_len(n), size = num_remove)
+    result <- population[-remove_indices]
+    
+  } else {
+    # Logic for a specific allele being targeted
+    # Here, 'target' will be the specific string (e.g., "blue") chosen by the user
+    target_indices <- which(population == target)
+    safe_indices <- which(population != target)
+    
+    n_target <- length(target_indices)
+    num_remove <- floor(n_target * pct_remove)
+    
+    if (num_remove > 0) {
+      remove_targets <- sample(target_indices, size = num_remove)
+      surviving_target_indices <- setdiff(target_indices, remove_targets)
+    } else {
+      surviving_target_indices <- target_indices
+    }
+    
+    result <- population[c(surviving_target_indices, safe_indices)]
+  }
+  
+  return(data.frame(result = result, pct_removed = pct_remove))
 }
 ```
 
