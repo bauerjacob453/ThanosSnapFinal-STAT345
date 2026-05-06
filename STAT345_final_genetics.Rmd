@@ -215,14 +215,14 @@ ui <- fluidPage(
     ),
 
     mainPanel(
-      h4("Population Counts: Generation 0, Post-Bottleneck, and Final Generation"),
-      tableOutput("final_table"),
-      hr(),
       h4("Summary Statistics Across All Simulations (Final Generation)"),
       tableOutput("summary_table"),
       hr(),
       h4("Average Allele Frequency Over Generations and All Simulations"),
       plotOutput("drift_plot"),
+      hr(),
+      h4("Selected Simulation Population Counts: Generation 0, Post-Bottleneck, and Final Generation"),
+      tableOutput("final_table"),
       hr(),
       h4("Allele Frequency for Selected Simulation"),
       plotOutput("single_sim_plot")
